@@ -1,3 +1,6 @@
+use crate::opcodes::*;
+use crate::decode::*;
+
 const NREGS: usize = 32;
 
 enum Inst {
@@ -39,19 +42,19 @@ impl Processor {
         let index = self.pc as usize;
         let inst16 = ((self.mem[index] as u16) << 0) 
                    | ((self.mem[index + 1] as u16) << 8);
-        if inst16 & 0x3 != 0x3 {
+        if inst16 & 0x3 < 0x3 {
             return Inst::Inst16(inst16);
         }
         let inst32 = (inst16 as u32)
             | ((self.mem[index + 2] as u32) << 16)
             | ((self.mem[index + 3] as u32) << 24);
-        if inst32 & 0x1c != 0x1c {
+        if inst32 & 0x1f < 0x1f {
             return Inst::Inst32(inst32);
         }
         let inst48 = (inst32 as u64)
             | ((self.mem[index + 4] as u64) << 32)
             | ((self.mem[index + 5] as u64) << 40);
-        if inst48 & 0xe0 == 0xe0 {
+        if inst48 & 0x3f < 0x3f {
             return Inst::Inst48(inst48);
         }
         let inst64 = (inst48 as u64)
@@ -68,8 +71,6 @@ impl Processor {
     }
 
     fn execute_16(&mut self, inst: u16) {
-        println!("inst16 = {:x}", inst);
-
         let opcode = inst & 0x3;
         let rd_rs1 = (((inst) >> 7) & 0xf) as usize;
         let rs2 = ((inst >> 2) & 0x1f) as usize;
@@ -112,9 +113,11 @@ impl Processor {
         }
     }
 
-    fn execute_32(&mut self, inst: u32) {
-        println!("inst32 = {:x}", inst);
+    fn exec_LUI(&mut self, inst: u32) {
+        self.regs[rd(inst)] = (inst & 0xfffff000) as u64;
+    }
 
+    fn execute_32(&mut self, inst: u32) {
         let opcode = inst & 0x7f;
         let rd = (((inst) >> 7) & 0x1f) as usize;
         let rs1 = ((inst >> 15) & 0x1f) as usize;
@@ -137,14 +140,10 @@ impl Processor {
     }
 
     fn execute_48(&mut self, inst: u64) {
-        println!("inst48 = {:x}", inst);
-
         todo!()
     }
 
     fn execute_64(&mut self, inst: u64) {
-        println!("inst64 = {:x}", inst);
-
         let opcode = inst & 0x7f;
         let rd = (((inst) >> 7) & 0x1f) as usize;
         let rs1 = ((inst >> 15) & 0x1f) as usize;
@@ -176,9 +175,23 @@ impl Processor {
     }
 
     pub fn dump(&self) -> String {
+        let abi = [
+            "zero", "ra",  "sp",  "gp",
+              "tp", "t0",  "t1",  "t2",
+              "s0", "s1",  "a0",  "a1",
+              "a2", "a3",  "a4",  "a5",
+              "a6", "a7",  "s2",  "s3",
+              "s4", "s5",  "s6",  "s7",
+              "s8", "s9", "s10", "s11",
+              "t3", "t4",  "t5",  "t6",
+        ];
+
         let mut out = String::from("");
-        for i in 0..NREGS {
-            out += &(self.regs[i].to_string() + "\n");
+        for i in 0..8 {
+            out += &format!("{:4}: {:<8x}", abi[i], self.regs[i]);
+            out += &format!("{:2}: {:<8x}", abi[i + 8], self.regs[i + 8]);
+            out += &format!("{:2}: {:<8x}", abi[i + 16], self.regs[i + 16]);
+            out += &format!("{:3}: {:<8x}\n", abi[i + 24], self.regs[i + 24]);
         }
         out
     }

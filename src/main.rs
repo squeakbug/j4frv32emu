@@ -4,7 +4,9 @@ use std::io::{self, Read};
 
 use processor::Processor;
 
+mod opcodes;
 mod processor;
+mod decode;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
