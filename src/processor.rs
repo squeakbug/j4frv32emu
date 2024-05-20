@@ -1,3 +1,6 @@
+use std::ops::Shl;
+use std::ops::Shr;
+
 use crate::opcodes::*;
 use crate::decode::*;
 
@@ -113,29 +116,133 @@ impl Processor {
         }
     }
 
-    fn exec_LUI(&mut self, inst: u32) {
-        self.regs[rd(inst)] = (inst & 0xfffff000) as u64;
+    fn exec_ADD(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)].wrapping_add(self.regs[rs2(inst)]);
+    }
+
+    fn exec_SUB(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)].wrapping_sub(self.regs[rs2(inst)]);
+    }
+
+    fn exec_SLL(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)].shl(self.regs[rs2(inst)]);
+    }
+
+    fn exec_SLT(&mut self, inst: u32) {
+        self.regs[rd(inst)] = if self.regs[rs1(inst)] < self.regs[rs2(inst)] { 0x1 } else { 0x0 };
+    }
+
+    fn exec_SLTU(&mut self, inst: u32) {
+        self.regs[rd(inst)] = if self.regs[rs1(inst)] < self.regs[rs2(inst)] { 0x1 } else { 0x0 };
+    }
+
+    fn exec_XOR(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)] ^ self.regs[rs2(inst)];
+    }
+
+    fn exec_SRL(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)].shr(self.regs[rs2(inst)]);
+    }
+
+    fn exec_SRA(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)].shr(self.regs[rs2(inst)]);
+    }
+
+    fn exec_AND(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)] & self.regs[rs2(inst)];
+    }
+
+    fn exec_OR(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)] | self.regs[rs2(inst)];
+    }
+
+    fn exec_r_type(&mut self, inst: u32) {
+        let funct7 = funct7(inst);
+        let funct3 = funct3(inst);
+        match funct7 {
+            ADD_FUNCT3 => match funct3 {
+                ADD => self.exec_ADD(inst),
+                SUB => self.exec_SUB(inst),
+                _ => { dbg!("not implemented yet"); }
+            },
+            SLL => self.exec_SLL(inst),
+            SLT => self.exec_SLT(inst),
+            SLTU => self.exec_SLTU(inst),
+            XOR => self.exec_XOR(inst),
+            SRL_FUNCT3 => match funct3 {
+                SRL => self.exec_SRL(inst),
+                SRA => self.exec_SRA(inst),   
+                _ => { dbg!("not implemented yet"); }
+            }
+            OR  => self.exec_OR(inst),
+            AND => self.exec_AND(inst),
+            _ => { dbg!("not implemented yet"); }
+        }
+    }
+
+    fn exec_ADDI(&mut self, inst: u32) {
+        let imm = ((inst & 0xfff00000) as i32 as i64 >> 20) as u64;
+        self.regs[rd(inst)] = self.regs[rs1(inst)].wrapping_add(imm);
+    }
+
+    fn exec_SLLI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_SLTI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_SLTIU(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_XORI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_SRLI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_SRAI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_ANDI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_ORI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_i_type(&mut self, inst: u32) {
+        let funct7 = funct7(inst);
+        let funct3 = funct3(inst);
+        match funct7 {
+            ADDI => self.exec_ADDI(inst),
+            SLLI => self.exec_SLLI(inst),
+            SLTI => self.exec_SLTI(inst),
+            SLTIU => self.exec_SLTIU(inst),
+            XORI => self.exec_XORI(inst),
+            SRI_FUNCT3 => match funct3 {
+                SRLI => self.exec_SRLI(inst),
+                SRAI => self.exec_SRAI(inst),   
+                _ => { dbg!("not implemented yet"); }
+            }
+            ORI  => self.exec_ORI(inst),
+            ANDI => self.exec_ANDI(inst),
+            _ => { dbg!("not implemented yet"); }
+        }
     }
 
     fn execute_32(&mut self, inst: u32) {
         let opcode = inst & 0x7f;
-        let rd = (((inst) >> 7) & 0x1f) as usize;
-        let rs1 = ((inst >> 15) & 0x1f) as usize;
-        let rs2 = ((inst >> 20) & 0x1f) as usize;
-
         match opcode {
-            0x13 => {
-                // addi
-                let imm = ((inst & 0xfff00000) as i32 as i64 >> 20) as u64;
-                self.regs[rd] = self.regs[rs1].wrapping_add(imm);
-            }
-            0x33 => {
-                // add
-                self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]);
-            }
-            _ => {
-                dbg!("not implemented yet");
-            }
+            R_TYPE => self.exec_r_type(inst),
+            I_TYPE => self.exec_i_type(inst),
+            _ => { dbg!("not implemented yet"); }
         }
     }
 

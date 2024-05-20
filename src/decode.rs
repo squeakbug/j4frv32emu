@@ -48,6 +48,14 @@ pub fn csr(inst: u32) -> u64 {
     x(inst as u64, 20, 12)
 }
 
+pub fn funct3(inst: u32) -> u64 {
+    x(inst as u64, 12, 3)
+}
+
+pub fn funct7(inst: u32) -> u64 {
+    x(inst as u64, 7, 25)
+}
+
 fn x(inst: u64, lo: usize, len: usize) -> u64 {
     (inst >> lo) & ((1u64 << len) - 1) 
 }

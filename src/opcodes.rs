@@ -28,6 +28,41 @@ const SH: usize = 0x1;
 const SW: usize = 0x2;
 const SD: usize = 0x3;
 
+const I_TYPE: usize = 0x13;
+    const ADDI: usize = 0x0;
+    const SLLI: usize = 0x1;
+    const SLTI: usize = 0x2;
+    const SLTIU: usize = 0x3;
+    const XORI: usize = 0x4;
+    const SRI_FUNCT3: usize = 0x5;
+        const SRLI: usize = 0x00;
+        const SRAI: usize = 0x20;
+    const ORI: usize = 0x6;
+    const ANDI: usize = 0x7;
+
+const R_TYPE: usize = 0x33;
+    const ADD_FUNCT3: usize = 0x00;
+        const ADD: usize = 0x00;
+        const SUB: usize = 0x20;
+    const SLL : usize = 0x1;
+    const SLT : usize = 0x2;
+    const SLTU: usize = 0x3;
+    const XOR : usize = 0x4;
+    const SRL_FUNCT3: usize = 0x5;
+        const SRL: usize = 0x00;
+        const SRA: usize = 0x20;
+    const OR : usize = 0x6;
+    const AND: usize = 0x7;
+
+const FENCE: usize = 0x0f;
+
+const I_TYPE_64: usize = 0x1b;
+    const ADDIW: usize = 0x0;
+    const SLLIW: usize = 0x1;
+    const SRIW: usize = 0x5;
+        const SRLIW: usize = 0x00;
+        const SRAIW: usize = 0x20;
+
 const R_TYPE_64: usize = 0x3b;
     const ADDSUB: usize = 0x0;
         const ADDW: usize = 0x00;
