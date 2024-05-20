@@ -2,11 +2,7 @@ use std::env;
 use std::fs::File;
 use std::io::{self, Read};
 
-use processor::Processor;
-
-mod opcodes;
-mod processor;
-mod decode;
+use librv64emu::Processor;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();

@@ -1,6 +1,7 @@
 use std::ops::Shl;
 use std::ops::Shr;
 
+use crate::errors::ProcessorError;
 use crate::opcodes::*;
 use crate::decode::*;
 
@@ -18,8 +19,6 @@ pub struct Processor {
 
     pc: u64,
     mem: Vec<u8>,
-
-    halt: bool,
 }
 
 impl Processor {
@@ -27,22 +26,28 @@ impl Processor {
         Processor {
             regs: [0; NREGS],
             pc: 0,
-            mem: vec![],
-
-            halt: false,
+            mem: vec![0u8; 0x100000],
         }
     }
 
-    pub fn is_halted(&self) -> bool {
-        return self.halt;
+    pub fn set_pc(&mut self, pc: u64) {
+        self.pc = pc;
     }
 
     pub fn load(&mut self, data: Vec<u8>) {
         self.mem = data;
     }
 
+    pub fn load_to(&mut self, data: Vec<u8>, addr: u64) {
+        let addr = addr - 0x8000_0000;
+        let mut tmp = Vec::from(&self.mem[..addr as usize]);
+        tmp.extend(data.as_slice());
+        tmp.extend(&self.mem[addr as usize + data.len()..]);
+        self.mem = tmp;
+    }
+
     fn fetch(&self) -> Inst {
-        let index = self.pc as usize;
+        let index = self.pc as usize - 0x8000_0000;
         let inst16 = ((self.mem[index] as u16) << 0) 
                    | ((self.mem[index + 1] as u16) << 8);
         if inst16 & 0x3 < 0x3 {
@@ -69,24 +74,13 @@ impl Processor {
         panic!("Not supported opcode");
     }
 
-    fn sign_extend(inst: u64) -> u64 {
-        todo!()
-    }
-
-    fn execute_16(&mut self, inst: u16) {
+    fn execute_16(&mut self, inst: u16) -> Result<(), ProcessorError> {
         let opcode = inst & 0x3;
         let rd_rs1 = (((inst) >> 7) & 0xf) as usize;
         let rs2 = ((inst >> 2) & 0x1f) as usize;
         let funct3 = ((inst >> 13) & 0x7) as usize;
 
         match opcode {
-            0x0 => {
-                match funct3 {
-                    _ => {
-                        dbg!("not implemented yet");
-                    }
-                }
-            }
             0x1 => {
                 match funct3 {
                     0x1 => {
@@ -98,22 +92,12 @@ impl Processor {
                         // add
                         self.regs[rd_rs1] = self.regs[rd_rs1].wrapping_add(self.regs[rs2]);
                     }
-                    _ => {
-                        dbg!("not implemented yet");
-                    }
+                    _ => return Err(ProcessorError::NotYetImplemented),
                 }
             }
-            0x2 => {
-                match funct3 {
-                    _ => {
-                        dbg!("not implemented yet");
-                    }
-                }
-            }
-            _ => {
-                dbg!("not implemented yet");
-            }
+            _ => return Err(ProcessorError::NotYetImplemented),
         }
+        Ok(())
     }
 
     fn exec_ADD(&mut self, inst: u32) {
@@ -156,14 +140,14 @@ impl Processor {
         self.regs[rd(inst)] = self.regs[rs1(inst)] | self.regs[rs2(inst)];
     }
 
-    fn exec_r_type(&mut self, inst: u32) {
+    fn exec_r_type(&mut self, inst: u32) -> Result<(), ProcessorError> {
         let funct7 = funct7(inst);
         let funct3 = funct3(inst);
         match funct7 {
             ADD_FUNCT3 => match funct3 {
                 ADD => self.exec_ADD(inst),
                 SUB => self.exec_SUB(inst),
-                _ => { dbg!("not implemented yet"); }
+                _ => return Err(ProcessorError::NotYetImplemented),
             },
             SLL => self.exec_SLL(inst),
             SLT => self.exec_SLT(inst),
@@ -172,12 +156,13 @@ impl Processor {
             SRL_FUNCT3 => match funct3 {
                 SRL => self.exec_SRL(inst),
                 SRA => self.exec_SRA(inst),   
-                _ => { dbg!("not implemented yet"); }
+                _ => return Err(ProcessorError::NotYetImplemented),
             }
             OR  => self.exec_OR(inst),
             AND => self.exec_AND(inst),
-            _ => { dbg!("not implemented yet"); }
+            _ => return Err(ProcessorError::NotYetImplemented),
         }
+        Ok(())
     }
 
     fn exec_ADDI(&mut self, inst: u32) {
@@ -217,7 +202,7 @@ impl Processor {
         todo!()
     }
 
-    fn exec_i_type(&mut self, inst: u32) {
+    fn exec_i_type(&mut self, inst: u32) -> Result<(), ProcessorError> {
         let funct7 = funct7(inst);
         let funct3 = funct3(inst);
         match funct7 {
@@ -229,28 +214,29 @@ impl Processor {
             SRI_FUNCT3 => match funct3 {
                 SRLI => self.exec_SRLI(inst),
                 SRAI => self.exec_SRAI(inst),   
-                _ => { dbg!("not implemented yet"); }
+                _ => return Err(ProcessorError::NotYetImplemented),
             }
             ORI  => self.exec_ORI(inst),
             ANDI => self.exec_ANDI(inst),
-            _ => { dbg!("not implemented yet"); }
+            _ => return Err(ProcessorError::NotYetImplemented),
         }
+        Ok(())
     }
 
-    fn execute_32(&mut self, inst: u32) {
+    fn execute_32(&mut self, inst: u32) -> Result<(), ProcessorError> {
         let opcode = inst & 0x7f;
         match opcode {
             R_TYPE => self.exec_r_type(inst),
             I_TYPE => self.exec_i_type(inst),
-            _ => { dbg!("not implemented yet"); }
+            _ => return Err(ProcessorError::NotYetImplemented),
         }
     }
 
-    fn execute_48(&mut self, inst: u64) {
+    fn execute_48(&mut self, _: u64) -> Result<(), ProcessorError> {
         todo!()
     }
 
-    fn execute_64(&mut self, inst: u64) {
+    fn execute_64(&mut self, inst: u64) -> Result<(), ProcessorError> {
         let opcode = inst & 0x7f;
         let rd = (((inst) >> 7) & 0x1f) as usize;
         let rs1 = ((inst >> 15) & 0x1f) as usize;
@@ -266,13 +252,12 @@ impl Processor {
                 // add
                 self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]);
             }
-            _ => {
-                dbg!("not implemented yet");
-            }
+            _ => return Err(ProcessorError::NotYetImplemented),
         }
+        Ok(())
     }
 
-    fn execute(&mut self, inst: Inst) {
+    fn execute(&mut self, inst: Inst) -> Result<(), ProcessorError> {
         match inst {
             Inst::Inst16(inner) => self.execute_16(inner),
             Inst::Inst32(inner) => self.execute_32(inner),
@@ -303,12 +288,13 @@ impl Processor {
         out
     }
 
-    pub fn tick(&mut self) {
-        let inst = self.fetch();
-        self.execute(inst);
-        self.pc = self.pc + 4;
-        if self.pc as usize >= self.mem.len() {
-            self.halt = true;
+    pub fn tick(&mut self) -> Result<(), ProcessorError> {
+        if self.pc as usize - 0x8000_0000 >= self.mem.len() {
+            return Err(ProcessorError::BufferOverflow);
         }
+        let inst = self.fetch();
+        self.execute(inst)?;
+        self.pc = self.pc + 4;
+        Ok(())
     }
 }
