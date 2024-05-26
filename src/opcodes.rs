@@ -77,8 +77,12 @@ const SRW: usize = 0x5;
 const REMW:  usize = 0x6;
 const REMUW: usize = 0x7;
 
-const CSR: usize =      0x73;
+const SYSTEM: usize =       0x73;
 const ECALLBREAK: usize =   0x00;
+const ECALL: usize =            0x00;
+const EBREAK: usize =           0x01;
+const MRET: usize =             0x08;
+const SRET: usize =             0x18;
 const CSRRW: usize =        0x01;
 const CSRRS: usize =        0x02;
 const CSRRC: usize =        0x03;

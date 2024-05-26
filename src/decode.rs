@@ -33,7 +33,7 @@ pub fn imm_B(inst: u32) -> u64 {
 
 pub fn imm_U(inst: u32) -> u64 {
     // imm[31:12] = inst[31:12]
-    return (inst & 0xfffff999) as u64;
+    return (inst & 0xfffff000) as u64;
 }
 
 pub fn imm_J(inst: u32) -> u64 {
@@ -54,6 +54,10 @@ pub fn funct3(inst: u32) -> u64 {
 
 pub fn funct7(inst: u32) -> u64 {
     x(inst as u64, 7, 25)
+}
+
+pub fn op(inst: u32) -> u64 {
+    x(inst as u64, 0, 7)
 }
 
 fn x(inst: u64, lo: usize, len: usize) -> u64 {

@@ -7,6 +7,7 @@ use crate::decode::*;
 
 const NREGS: usize = 32;
 
+#[derive(Debug, Clone, Copy)]
 enum Inst {
     Inst16(u16),
     Inst32(u32),
@@ -19,6 +20,23 @@ pub struct Processor {
 
     pc: u64,
     mem: Vec<u8>,
+
+    mvendorid: u64,
+    marchid: u64,
+    mimpid: u64,
+    mhartid: u64,
+
+    mstatus: u64,
+    medeleg: u64,
+    mideleg:  u64,
+    mie: u64,
+    mtvec: u64,
+
+    mscratch: u64,
+    mepc: u64,
+    mcause: u64,
+    mtval: u64,
+    mip: u64,
 }
 
 impl Processor {
@@ -27,6 +45,23 @@ impl Processor {
             regs: [0; NREGS],
             pc: 0,
             mem: vec![0u8; 0x100000],
+
+            mvendorid: 0,
+            marchid: 0,
+            mimpid: 0,
+            mhartid: 0,
+
+            mstatus: 0,
+            medeleg: 0,
+            mideleg:  0,
+            mie: 0,
+            mtvec: 0,
+
+            mscratch: 0,
+            mepc: 0,
+            mcause: 0,
+            mtval: 0,
+            mip: 0,
         }
     }
 
@@ -73,7 +108,9 @@ impl Processor {
         }
         panic!("Not supported opcode");
     }
+}
 
+impl Processor {
     fn execute_16(&mut self, inst: u16) -> Result<(), ProcessorError> {
         let opcode = inst & 0x3;
         let rd_rs1 = (((inst) >> 7) & 0xf) as usize;
@@ -99,7 +136,9 @@ impl Processor {
         }
         Ok(())
     }
+}
 
+impl Processor {
     fn exec_ADD(&mut self, inst: u32) {
         self.regs[rd(inst)] = self.regs[rs1(inst)].wrapping_add(self.regs[rs2(inst)]);
     }
@@ -223,19 +262,315 @@ impl Processor {
         Ok(())
     }
 
-    fn execute_32(&mut self, inst: u32) -> Result<(), ProcessorError> {
-        let opcode = inst & 0x7f;
+    fn exec_LUI(&mut self, inst: u32) {
+        self.regs[rd(inst)] = imm_U(inst);
+    }
+
+    fn exec_AUIPC(&mut self, inst: u32) {
+        self.regs[rd(inst)] = imm_U(inst) + self.pc;
+    }
+
+    fn exec_u_type(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let opcode = op(inst);
         match opcode {
-            R_TYPE => self.exec_r_type(inst),
-            I_TYPE => self.exec_i_type(inst),
+            LUI => self.exec_LUI(inst),
+            AUIPC => self.exec_AUIPC(inst),
             _ => return Err(ProcessorError::NotYetImplemented),
+        }
+        Ok(())
+    }
+
+    fn exec_JAL(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.pc + 4;
+        self.pc = self.pc + imm_J(inst);
+    }
+
+    fn exec_JALR(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.pc + 4;
+        self.pc = self.regs[rs1(inst)] + imm_I(inst);
+    }
+
+    fn exec_j_type(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let opcode = op(inst);
+        match opcode {
+            JAL => self.exec_JAL(inst),
+            JALR => self.exec_JALR(inst),
+            _ => return Err(ProcessorError::NotYetImplemented),
+        }
+        Ok(())
+    }
+
+    fn exec_BEQ(&mut self, inst: u32) {
+        if self.regs[rs1(inst)] == self.regs[rs2(inst)] {
+            self.pc = self.pc + imm_B(inst);
         }
     }
 
-    fn execute_48(&mut self, _: u64) -> Result<(), ProcessorError> {
+    fn exec_BNE(&mut self, inst: u32) {
+        if self.regs[rs1(inst)] != self.regs[rs2(inst)] {
+            self.pc = self.pc + imm_B(inst);
+        }
+    }
+
+    fn exec_BLT(&mut self, inst: u32) {
+        if (self.regs[rs1(inst)] as i64) < (self.regs[rs2(inst)] as i64) {
+            self.pc = self.pc + imm_B(inst);
+        }
+    }
+
+    fn exec_BGE(&mut self, inst: u32) {
+        if (self.regs[rs1(inst)] as i64) >= (self.regs[rs2(inst)] as i64) {
+            self.pc = self.pc + imm_B(inst);
+        }
+    }
+
+    fn exec_BLTU(&mut self, inst: u32) {
+        if self.regs[rs1(inst)] < self.regs[rs2(inst)] {
+            self.pc = self.pc + imm_B(inst);
+        }
+    }
+
+    fn exec_BGEU(&mut self, inst: u32) {
+        if self.regs[rs1(inst)] >= self.regs[rs2(inst)] {
+            self.pc = self.pc + imm_B(inst);
+        }
+    }
+
+    fn exec_b_type(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let opcode = op(inst);
+        let funct3 = funct3(inst);
+        match funct3 {
+            BEQ  => self.exec_BEQ(inst),
+            BNE  => self.exec_BNE(inst),
+            BLT  => self.exec_BLT(inst),
+            BGE  => self.exec_BGE(inst),
+            BLTU => self.exec_BLTU(inst),
+            BGEU => self.exec_BGEU(inst),
+            _ => return Err(ProcessorError::NotYetImplemented),
+        }
+        Ok(())
+    }
+
+    fn exec_LB(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xff) | (self.mem[rs1(inst)] as u64);
+    }
+
+    fn exec_LH(&mut self, inst: u32) {
+        let mut tmp = 0;
+        let rs1 = rs1(inst);
+        for i in 0..2 {
+            tmp = (tmp << 8) | (self.mem[rs1 + i] as u64)
+        }
+        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xffff) | tmp;
+    }
+
+    fn exec_LW(&mut self, inst: u32) {
+        let mut tmp = 0;
+        let rs1 = rs1(inst);
+        for i in 0..4 {
+            tmp = (tmp << 8) | (self.mem[rs1 + i] as u64)
+        }
+        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xffff_ffff) | tmp;
+    }
+
+    fn exec_LD(&mut self, inst: u32) {
+        let mut tmp = 0;
+        let rs1 = rs1(inst);
+        for i in 0..8 {
+            tmp = (tmp << 8) | (self.mem[rs1 + i] as u64)
+        }
+        self.regs[rd(inst)] = self.regs[rd(inst)] | tmp;
+    }
+
+    fn exec_LBU(&mut self, inst: u32) {
+        //self.regs[rd(inst)] = self.regs[rd(inst)] 
+        //    | (self.mem[rs1(inst)] as u64)
+        //    | ((self.mem[rs1(inst) + 1] as u64) << 8);
+    }
+
+    fn exec_LHU(&mut self, inst: u32) {
+        //self.regs[rd(inst)] = self.regs[rd(inst)] 
+        //    | (self.mem[rs1(inst)] as u64)
+        //    | ((self.mem[rs1(inst) + 1] as u64) << 8)
+        //    | ((self.mem[rs1(inst) + 2] as u64) << 16)
+        //    | ((self.mem[rs1(inst) + 3] as u64) << 24);
+    }
+
+    fn exec_LWU(&mut self, inst: u32) {
+        //self.regs[rd(inst)] = self.regs[rd(inst)] | (self.mem[rs1(inst)] & 0xffffffff);
+    }
+
+    fn exec_load(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let funct3 = funct3(inst);
+        match funct3 {
+            LB => self.exec_LB(inst),
+            LH => self.exec_LH(inst),
+            LW => self.exec_LW(inst),
+            LD => self.exec_LD(inst),
+            LBU => self.exec_LBU(inst),
+            LHU => self.exec_LHU(inst),
+            LWU => self.exec_LWU(inst),
+            _ => return Err(ProcessorError::NotYetImplemented),
+        }
+        Ok(())
+    }
+
+    fn exec_SB(&mut self, inst: u32) {
+        let offset = imm_S(inst);
+        let store_addr = offset + self.regs[rs1(inst)];
+        let mut data = rs2(inst);
+        for i in 0..1 {
+            self.mem[store_addr as usize + i] = (data & 0xff) as u8;
+            data = data >> 8;
+        }
+    }
+
+    fn exec_SH(&mut self, inst: u32) {
+        let offset = imm_S(inst);
+        let store_addr = offset + self.regs[rs1(inst)];
+        let mut data = rs2(inst);
+        for i in 0..2 {
+            self.mem[store_addr as usize + i] = (data & 0xff) as u8;
+            data = data >> 8;
+        }
+    }
+
+    fn exec_SW(&mut self, inst: u32) {
+        let offset = imm_S(inst);
+        let store_addr = offset + self.regs[rs1(inst)];
+        let mut data = rs2(inst);
+        for i in 0..4 {
+            self.mem[store_addr as usize + i] = (data & 0xff) as u8;
+            data = data >> 8;
+        }
+    }
+
+    fn exec_SD(&mut self, inst: u32) {
+        let offset = imm_S(inst);
+        let store_addr = offset + self.regs[rs1(inst)];
+        let mut data = rs2(inst);
+        for i in 0..8 {
+            self.mem[store_addr as usize + i] = (data & 0xff) as u8;
+            data = data >> 8;
+        }
+    }
+
+    fn exec_store(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let funct3 = funct3(inst);
+        match funct3 {
+            SB => self.exec_SB(inst),
+            SH => self.exec_SH(inst),
+            SW => self.exec_SW(inst),
+            SD => self.exec_SD(inst),
+            _ => return Err(ProcessorError::NotYetImplemented),
+        }
+        Ok(())
+    }
+
+    fn exec_ECALL(&mut self, inst: u32) {
         todo!()
     }
 
+    fn exec_EBREAK(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_SRET(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_MRET(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_CSRRW(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_CSRRS(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_CSRRC(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_CSRRWI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_CSRRSI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_CSRRCI(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_system(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let funct3 = funct3(inst);
+        let funct7 = funct7(inst);
+        match funct3 {
+            ECALLBREAK => match funct7 {
+                ECALL  => self.exec_ECALL(inst),
+                EBREAK => self.exec_EBREAK(inst),
+                SRET   => self.exec_SRET(inst),
+                MRET   => self.exec_MRET(inst),
+                _ => return Err(ProcessorError::NotYetImplemented),
+            },
+            CSRRW => self.exec_CSRRW(inst),
+            CSRRS => self.exec_CSRRS(inst),
+            CSRRC => self.exec_CSRRC(inst),
+            CSRRWI => self.exec_CSRRWI(inst),
+            CSRRSI => self.exec_CSRRSI(inst),
+            CSRRCI => self.exec_CSRRCI(inst),
+            _ => return Err(ProcessorError::NotYetImplemented),
+        }
+        Ok(())
+    }
+
+    fn exec_FENCE(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_FENCE_I(&mut self, inst: u32) {
+        todo!()
+    }
+
+    fn exec_fence(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let funct3 = funct3(inst);
+        match funct3 {
+            FENCE => self.exec_FENCE(inst),
+            FENCE_I => self.exec_FENCE_I(inst),
+            _ => return Err(ProcessorError::NotYetImplemented),
+        }
+        Ok(())
+    }
+
+    fn execute_32(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let opcode = op(inst);
+        match opcode {
+            U_TYPE => self.exec_u_type(inst),
+            R_TYPE => self.exec_r_type(inst),
+            I_TYPE => self.exec_i_type(inst),
+            J_TYPE => self.exec_j_type(inst),
+            B_TYPE => self.exec_b_type(inst),
+            LOAD   => self.exec_load(inst),
+            S_TYPE => self.exec_store(inst),
+            SYSTEM => self.exec_system(inst),
+            FENCE  => self.exec_fence(inst),
+            _ => return Err(ProcessorError::NotYetImplemented),
+        }
+    }
+}
+
+impl Processor {
+    fn execute_48(&mut self, _: u64) -> Result<(), ProcessorError> {
+        todo!()
+    }
+}
+
+impl Processor {
     fn execute_64(&mut self, inst: u64) -> Result<(), ProcessorError> {
         let opcode = inst & 0x7f;
         let rd = (((inst) >> 7) & 0x1f) as usize;
@@ -256,7 +591,9 @@ impl Processor {
         }
         Ok(())
     }
+}
 
+impl Processor {
     fn execute(&mut self, inst: Inst) -> Result<(), ProcessorError> {
         match inst {
             Inst::Inst16(inner) => self.execute_16(inner),

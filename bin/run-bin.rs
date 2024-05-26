@@ -15,8 +15,8 @@ fn main() -> io::Result<()> {
 
     let mut processor = Processor::new();
     processor.load(data);
-    while !processor.is_halted() {
-        processor.tick();
+    while let Ok(()) = processor.tick() {
+        continue;   
     }
     println!("{}", processor.dump());
     Ok(())
