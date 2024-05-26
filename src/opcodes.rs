@@ -28,17 +28,28 @@ const SH: usize = 0x1;
 const SW: usize = 0x2;
 const SD: usize = 0x3;
 
-const I_TYPE: usize = 0x13;
-    const ADDI: usize = 0x0;
-    const SLLI: usize = 0x1;
-    const SLTI: usize = 0x2;
-    const SLTIU: usize = 0x3;
-    const XORI: usize = 0x4;
-    const SRI_FUNCT3: usize = 0x5;
-        const SRLI: usize = 0x00;
-        const SRAI: usize = 0x20;
-    const ORI: usize = 0x6;
-    const ANDI: usize = 0x7;
+#[repr(u64)]
+pub enum Opcode {
+    ITYPE = 0x13u64,
+}
+
+#[repr(u64)]
+pub enum Funct7 {
+    ADDI = 0x0,
+    SLLI = 0x1,
+    SLTI = 0x2,
+    SLTIU = 0x3,
+    XORI = 0x4,
+    SRIFUNCT3 = 0x5,
+    ORI = 0x6,
+    ANDI = 0x7,
+}
+
+#[repr(u64)]
+pub enum SRIFunct3 {
+    SRLI = 0x00,
+    SRAI = 0x20,
+}
 
 const R_TYPE: usize = 0x33;
     const ADD_FUNCT3: usize = 0x00;

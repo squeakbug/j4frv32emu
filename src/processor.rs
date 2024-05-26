@@ -1,9 +1,13 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use std::ops::Shl;
 use std::ops::Shr;
 
-use crate::errors::ProcessorError;
+use crate::errors::*;
 use crate::opcodes::*;
 use crate::decode::*;
+use crate::system_bus::*;
 
 const NREGS: usize = 32;
 
@@ -19,7 +23,7 @@ pub struct Processor {
     regs: [u64; NREGS],
 
     pc: u64,
-    mem: Vec<u8>,
+    system_bus: SystemBus,
 
     mvendorid: u64,
     marchid: u64,
@@ -40,11 +44,11 @@ pub struct Processor {
 }
 
 impl Processor {
-    pub fn new() -> Self {
+    pub fn new(system_bus: SystemBus) -> Self {
         Processor {
             regs: [0; NREGS],
             pc: 0,
-            mem: vec![0u8; 0x100000],
+            system_bus,
 
             mvendorid: 0,
             marchid: 0,
@@ -69,42 +73,24 @@ impl Processor {
         self.pc = pc;
     }
 
-    pub fn load(&mut self, data: Vec<u8>) {
-        self.mem = data;
-    }
+    // TODO: Определение типа инструкции за один fetch
+    // TODO: Заворачивание ошибки доступа к шине в ошибку процессора
+    fn fetch(&self) -> Result<Inst, ProcessorError> {
+        let inst = self.system_bus.load(self.pc, 64).map_err(|err| {
+            ProcessorError::FetchError
+        })?;
 
-    pub fn load_to(&mut self, data: Vec<u8>, addr: u64) {
-        let addr = addr - 0x8000_0000;
-        let mut tmp = Vec::from(&self.mem[..addr as usize]);
-        tmp.extend(data.as_slice());
-        tmp.extend(&self.mem[addr as usize + data.len()..]);
-        self.mem = tmp;
-    }
-
-    fn fetch(&self) -> Inst {
-        let index = self.pc as usize - 0x8000_0000;
-        let inst16 = ((self.mem[index] as u16) << 0) 
-                   | ((self.mem[index + 1] as u16) << 8);
-        if inst16 & 0x3 < 0x3 {
-            return Inst::Inst16(inst16);
+        if inst & 0x3 < 0x3 {
+            return Ok(Inst::Inst16(inst as u16));
         }
-        let inst32 = (inst16 as u32)
-            | ((self.mem[index + 2] as u32) << 16)
-            | ((self.mem[index + 3] as u32) << 24);
-        if inst32 & 0x1f < 0x1f {
-            return Inst::Inst32(inst32);
+        if inst & 0x1f < 0x1f {
+            return Ok(Inst::Inst32(inst as u32));
         }
-        let inst48 = (inst32 as u64)
-            | ((self.mem[index + 4] as u64) << 32)
-            | ((self.mem[index + 5] as u64) << 40);
-        if inst48 & 0x3f < 0x3f {
-            return Inst::Inst48(inst48);
+        if inst & 0x3f < 0x3f {
+            return Ok(Inst::Inst48(inst as u64));
         }
-        let inst64 = (inst48 as u64)
-            | ((self.mem[index + 6] as u64) << 48)
-            | ((self.mem[index + 7] as u64) << 56);
-        if inst64 ^ 0x7f == 0 {
-            return Inst::Inst64(inst64);
+        if inst ^ 0x7f == 0 {
+            return Ok(Inst::Inst64(inst as u64));
         }
         panic!("Not supported opcode");
     }
@@ -352,52 +338,45 @@ impl Processor {
     }
 
     fn exec_LB(&mut self, inst: u32) {
-        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xff) | (self.mem[rs1(inst)] as u64);
+        const SZ: usize = 8;
+        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xff) 
+            | self.system_bus.load(rs1(inst) as u64, SZ).expect("Read bus error");
     }
 
     fn exec_LH(&mut self, inst: u32) {
-        let mut tmp = 0;
-        let rs1 = rs1(inst);
-        for i in 0..2 {
-            tmp = (tmp << 8) | (self.mem[rs1 + i] as u64)
-        }
-        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xffff) | tmp;
+        const SZ: usize = 16;
+        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xffff)
+            | self.system_bus.load(rs1(inst) as u64, SZ).expect("Read bus error");
     }
 
     fn exec_LW(&mut self, inst: u32) {
-        let mut tmp = 0;
-        let rs1 = rs1(inst);
-        for i in 0..4 {
-            tmp = (tmp << 8) | (self.mem[rs1 + i] as u64)
-        }
-        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xffff_ffff) | tmp;
+        const SZ: usize = 32;
+        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xffff_ffff)
+            | self.system_bus.load(rs1(inst) as u64, SZ).expect("Read bus error");
     }
 
     fn exec_LD(&mut self, inst: u32) {
-        let mut tmp = 0;
-        let rs1 = rs1(inst);
-        for i in 0..8 {
-            tmp = (tmp << 8) | (self.mem[rs1 + i] as u64)
-        }
-        self.regs[rd(inst)] = self.regs[rd(inst)] | tmp;
+        const SZ: usize = 64;
+        self.regs[rd(inst)] = self.regs[rd(inst)]
+            | self.system_bus.load(rs1(inst) as u64, SZ).expect("Read bus error");
     }
 
     fn exec_LBU(&mut self, inst: u32) {
-        //self.regs[rd(inst)] = self.regs[rd(inst)] 
-        //    | (self.mem[rs1(inst)] as u64)
-        //    | ((self.mem[rs1(inst) + 1] as u64) << 8);
+        const SZ: usize = 8;
+        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xff) 
+            | self.system_bus.load(rs1(inst) as u64, SZ).expect("Read bus error");
     }
 
     fn exec_LHU(&mut self, inst: u32) {
-        //self.regs[rd(inst)] = self.regs[rd(inst)] 
-        //    | (self.mem[rs1(inst)] as u64)
-        //    | ((self.mem[rs1(inst) + 1] as u64) << 8)
-        //    | ((self.mem[rs1(inst) + 2] as u64) << 16)
-        //    | ((self.mem[rs1(inst) + 3] as u64) << 24);
+        const SZ: usize = 16;
+        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xffff)
+            | self.system_bus.load(rs1(inst) as u64, SZ).expect("Read bus error");
     }
 
     fn exec_LWU(&mut self, inst: u32) {
-        //self.regs[rd(inst)] = self.regs[rd(inst)] | (self.mem[rs1(inst)] & 0xffffffff);
+        const SZ: usize = 32;
+        self.regs[rd(inst)] = self.regs[rd(inst)] & (!0xffff_ffff)
+            | self.system_bus.load(rs1(inst) as u64, SZ).expect("Read bus error");
     }
 
     fn exec_load(&mut self, inst: u32) -> Result<(), ProcessorError> {
@@ -416,43 +395,35 @@ impl Processor {
     }
 
     fn exec_SB(&mut self, inst: u32) {
+        const SZ: usize = 8;
         let offset = imm_S(inst);
         let store_addr = offset + self.regs[rs1(inst)];
-        let mut data = rs2(inst);
-        for i in 0..1 {
-            self.mem[store_addr as usize + i] = (data & 0xff) as u8;
-            data = data >> 8;
-        }
+        let data = rs2(inst);
+        self.system_bus.store(data as u64, store_addr, SZ).expect("Read bus error");
     }
 
     fn exec_SH(&mut self, inst: u32) {
+        const SZ: usize = 16;
         let offset = imm_S(inst);
         let store_addr = offset + self.regs[rs1(inst)];
-        let mut data = rs2(inst);
-        for i in 0..2 {
-            self.mem[store_addr as usize + i] = (data & 0xff) as u8;
-            data = data >> 8;
-        }
+        let data = rs2(inst);
+        self.system_bus.store(data as u64, store_addr, SZ).expect("Read bus error");
     }
 
     fn exec_SW(&mut self, inst: u32) {
+        const SZ: usize = 32;
         let offset = imm_S(inst);
         let store_addr = offset + self.regs[rs1(inst)];
-        let mut data = rs2(inst);
-        for i in 0..4 {
-            self.mem[store_addr as usize + i] = (data & 0xff) as u8;
-            data = data >> 8;
-        }
+        let data = rs2(inst);
+        self.system_bus.store(data as u64, store_addr, SZ).expect("Read bus error");
     }
 
     fn exec_SD(&mut self, inst: u32) {
+        const SZ: usize = 64;
         let offset = imm_S(inst);
         let store_addr = offset + self.regs[rs1(inst)];
-        let mut data = rs2(inst);
-        for i in 0..8 {
-            self.mem[store_addr as usize + i] = (data & 0xff) as u8;
-            data = data >> 8;
-        }
+        let data = rs2(inst);
+        self.system_bus.store(data as u64, store_addr, SZ).expect("Read bus error");
     }
 
     fn exec_store(&mut self, inst: u32) -> Result<(), ProcessorError> {
@@ -552,7 +523,7 @@ impl Processor {
         match opcode {
             U_TYPE => self.exec_u_type(inst),
             R_TYPE => self.exec_r_type(inst),
-            I_TYPE => self.exec_i_type(inst),
+            ITYPE  => self.exec_i_type(inst),
             J_TYPE => self.exec_j_type(inst),
             B_TYPE => self.exec_b_type(inst),
             LOAD   => self.exec_load(inst),
@@ -626,10 +597,7 @@ impl Processor {
     }
 
     pub fn tick(&mut self) -> Result<(), ProcessorError> {
-        if self.pc as usize - 0x8000_0000 >= self.mem.len() {
-            return Err(ProcessorError::BufferOverflow);
-        }
-        let inst = self.fetch();
+        let inst = self.fetch()?;
         self.execute(inst)?;
         self.pc = self.pc + 4;
         Ok(())

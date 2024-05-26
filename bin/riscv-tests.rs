@@ -6,8 +6,10 @@ use elf::endian::AnyEndian;
 use elf::ElfBytes;
 use glob::glob;
 
-use librv64emu::errors::ProcessorError;
+use librv64emu::errors::*;
 use librv64emu::Processor;
+use librv64emu::system_bus::SystemBusMap;
+use librv64emu::system_bus::SystemBus;
 
 fn run_test(path: &PathBuf) -> io::Result<()> {
     print!("test: {}: ", path.to_str().expect("Bad path"));
@@ -17,11 +19,17 @@ fn run_test(path: &PathBuf) -> io::Result<()> {
     let file = ElfBytes::<AnyEndian>::minimal_parse(slice).expect("Bad parse");
     let segments =  file.segments().expect("Bad program headers");
 
-    let mut processor = Processor::new();
+    let sbus_map = SystemBusMap {
+        dram_base_addr: 0x8000_0000,
+        dram_size: 0x1_0000,
+    };
+    let mut sbus = SystemBus::new(sbus_map);
+
     for segment in segments.iter().skip(1) {
         let data = file.segment_data(&segment).expect("Bad parse segment data");
-        processor.load_to(data.to_vec(), segment.p_paddr);
+        sbus.bulk_store_segment(data.to_vec(), segment.p_paddr - 0x8000_0000);
     }
+    let mut processor = Processor::new(sbus);
     processor.set_pc(0x8000_0000);
 
     while let Ok(()) = processor.tick() {
