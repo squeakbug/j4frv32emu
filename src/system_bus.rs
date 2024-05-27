@@ -32,21 +32,19 @@ impl SystemBus {
     }
 
     pub fn load(&self, addr: u64, size: usize) -> Result<u64, SystemBusError> {
-        match addr {
-            0x8000_0000..=0x8000_ffff => {
-                return Ok(self.dram.load(addr - 0x8000_0000, size));
-            }
-            _ => return Err(SystemBusError::InvalidAddress),
+        if addr >= self.dram_base_addr && addr < self.dram_base_addr + self.dram_size as u64 {
+            Ok(self.dram.load(addr - self.dram_base_addr, size))
+        } else {
+            Err(SystemBusError::InvalidAddress)
         }
     }
 
     pub fn store(&mut self, data: u64, addr: u64, size: usize) -> Result<(), SystemBusError> {
-        match addr {
-            0x8000_0000..=0x8000_ffff => {
-                self.dram.store(data, addr - 0x8000_0000, size);
-            }
-            _ => return Err(SystemBusError::InvalidAddress),
+        if addr >= self.dram_base_addr && addr < self.dram_base_addr + self.dram_size as u64 {
+            self.dram.store(data, addr - self.dram_base_addr, size);
+            Ok(())
+        } else {
+            Err(SystemBusError::InvalidAddress)
         }
-        Ok(())
     }
 }

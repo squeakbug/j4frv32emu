@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
+#![allow(non_snake_case)]
 
 use std::ops::Shl;
 use std::ops::Shr;
@@ -196,35 +197,43 @@ impl Processor {
     }
 
     fn exec_SLLI(&mut self, inst: u32) {
-        todo!()
+        self.regs[rd(inst)] = self.regs[rs1(inst)] << shamt(inst);
     }
 
     fn exec_SLTI(&mut self, inst: u32) {
-        todo!()
+        if (self.regs[rs1(inst)] as i64) < (imm_I(inst) as i64) {
+            self.regs[rd(inst)] = 1;
+        } else {
+            self.regs[rd(inst)] = 0;
+        }
     }
 
     fn exec_SLTIU(&mut self, inst: u32) {
-        todo!()
+        if self.regs[rs1(inst)] < imm_I(inst) {
+            self.regs[rd(inst)] = 1;
+        } else {
+            self.regs[rd(inst)] = 0;
+        }
     }
 
     fn exec_XORI(&mut self, inst: u32) {
-        todo!()
+        self.regs[rd(inst)] = self.regs[rs1(inst)] ^ imm_I(inst);
     }
 
     fn exec_SRLI(&mut self, inst: u32) {
-        todo!()
+        self.regs[rd(inst)] = self.regs[rs1(inst)] >> imm_I(inst);
     }
 
     fn exec_SRAI(&mut self, inst: u32) {
-        todo!()
+        self.regs[rd(inst)] = ((self.regs[rs1(inst)] as i64) >> imm_I(inst)) as u64;
     }
 
     fn exec_ANDI(&mut self, inst: u32) {
-        todo!()
+        self.regs[rd(inst)] = self.regs[rs1(inst)] & imm_I(inst);
     }
 
     fn exec_ORI(&mut self, inst: u32) {
-        todo!()
+        self.regs[rd(inst)] = self.regs[rs1(inst)] | imm_I(inst);
     }
 
     fn exec_i_type(&mut self, inst: u32) -> Result<(), ProcessorError> {
@@ -511,8 +520,8 @@ impl Processor {
     fn exec_fence(&mut self, inst: u32) -> Result<(), ProcessorError> {
         let funct3 = funct3(inst);
         match funct3 {
-            FENCE => self.exec_FENCE(inst),
-            FENCE_I => self.exec_FENCE_I(inst),
+            FENCE_FUNCT3 => self.exec_FENCE(inst),
+            FENCE_I_FUNCT3 => self.exec_FENCE_I(inst),
             _ => return Err(ProcessorError::NotYetImplemented),
         }
         Ok(())
@@ -521,17 +530,20 @@ impl Processor {
     fn execute_32(&mut self, inst: u32) -> Result<(), ProcessorError> {
         let opcode = op(inst);
         match opcode {
-            U_TYPE => self.exec_u_type(inst),
-            R_TYPE => self.exec_r_type(inst),
-            ITYPE  => self.exec_i_type(inst),
-            J_TYPE => self.exec_j_type(inst),
-            B_TYPE => self.exec_b_type(inst),
-            LOAD   => self.exec_load(inst),
-            S_TYPE => self.exec_store(inst),
-            SYSTEM => self.exec_system(inst),
-            FENCE  => self.exec_fence(inst),
-            _ => return Err(ProcessorError::NotYetImplemented),
+            LUI    => self.exec_LUI(inst),
+            AUIPC  => self.exec_AUIPC(inst),
+            R_TYPE => return self.exec_r_type(inst),
+            I_TYPE => return self.exec_i_type(inst),
+            JAL    => self.exec_JAL(inst),
+            JALR   => self.exec_JALR(inst),
+            B_TYPE => return self.exec_b_type(inst),
+            LOAD   => return self.exec_load(inst),
+            S_TYPE => return self.exec_store(inst),
+            SYSTEM => return self.exec_system(inst),
+            FENCE  => return self.exec_fence(inst),
+            _      => return Err(ProcessorError::NotYetImplemented),
         }
+        Ok(())
     }
 }
 

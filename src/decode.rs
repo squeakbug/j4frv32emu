@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(non_snake_case)]
+
 pub fn rd(inst: u32) -> usize {
     // rd in bits 11..7
     return ((inst >> 7) & 0x1f) as usize;
@@ -42,6 +45,10 @@ pub fn imm_J(inst: u32) -> u64 {
         | (inst & 0xff000) // imm[19:12]
         | ((inst >> 9) & 0x800) // imm[11]
         | ((inst >> 20) & 0x7fe)) as u64; // imm[10:1]
+}
+
+pub fn shamt(inst: u32) -> u64 {
+    imm_I(inst) & 0x1f
 }
 
 pub fn csr(inst: u32) -> u64 {
