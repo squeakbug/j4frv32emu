@@ -45,6 +45,7 @@ cargo run --bin riscv-tests
 ## Ссылки
 
 - [RISC-V ISA](https://riscv.org/specifications/)
+- [Spike - Reference implementation](https://github.com/riscv-software-src/riscv-isa-sim)
 - [JH7110 Datasheet (SoC)](https://starfivetech.com/uploads/JH7110.pdf)
 - [E24 Datasheet (RISC-V Core)](https://sifive-china.oss-cn-zhangjiakou.aliyuncs.com/Standard%20Core%20IP/e24_core_complex_manual_21G2.pdf)
 - [Virtio Device](https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html)

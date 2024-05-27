@@ -37,7 +37,7 @@ fn run_test(path: &PathBuf) -> io::Result<()> {
     }
     match processor.tick() {
         Err(ProcessorError::BufferOverflow) => println!("{}", "OK".green()),
-        _ => println!("{}", "ERROR".red()),
+        _ => println!("{}\n{}", "ERROR".red(), processor.dump()),
     };
     Ok(())
 }

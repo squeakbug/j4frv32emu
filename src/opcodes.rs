@@ -107,3 +107,20 @@ pub const AMOMIN_W:  u64 =    0x10;
 pub const AMOMAX_W:  u64 =    0x14;
 pub const AMOMINU_W: u64 =    0x18;
 pub const AMOMAXU_W: u64 =    0x1c;
+
+pub const MVENDORID: u64 = 0xf11;
+pub const MARCHID: u64   = 0xf12;
+pub const MIMPID: u64    = 0xf13;
+pub const MHARTID: u64   = 0xf14;
+
+pub const MSTATUS: u64 = 0x300;
+pub const MEDELEG: u64 = 0x302;
+pub const MIDELEG:  u64 = 0x303;
+pub const MIE: u64 = 0x304;
+pub const MTVEC: u64 = 0x305;
+
+pub const MSCRATCH: u64 = 0x340;
+pub const MEPC: u64 = 0x341;
+pub const MCAUSE: u64 = 0x342;
+pub const MTVAL: u64 = 0x343;
+pub const MIP: u64 = 0x344;

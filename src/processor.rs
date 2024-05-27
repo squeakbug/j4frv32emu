@@ -11,6 +11,7 @@ use crate::decode::*;
 use crate::system_bus::*;
 
 const NREGS: usize = 32;
+const NSREGS: usize = 4096;
 
 #[derive(Debug, Clone, Copy)]
 enum Inst {
@@ -26,22 +27,7 @@ pub struct Processor {
     pc: u64,
     system_bus: SystemBus,
 
-    mvendorid: u64,
-    marchid: u64,
-    mimpid: u64,
-    mhartid: u64,
-
-    mstatus: u64,
-    medeleg: u64,
-    mideleg:  u64,
-    mie: u64,
-    mtvec: u64,
-
-    mscratch: u64,
-    mepc: u64,
-    mcause: u64,
-    mtval: u64,
-    mip: u64,
+    csrs: [u64; NSREGS],
 }
 
 impl Processor {
@@ -50,23 +36,7 @@ impl Processor {
             regs: [0; NREGS],
             pc: 0,
             system_bus,
-
-            mvendorid: 0,
-            marchid: 0,
-            mimpid: 0,
-            mhartid: 0,
-
-            mstatus: 0,
-            medeleg: 0,
-            mideleg:  0,
-            mie: 0,
-            mtvec: 0,
-
-            mscratch: 0,
-            mepc: 0,
-            mcause: 0,
-            mtval: 0,
-            mip: 0,
+            csrs: [0; NSREGS],
         }
     }
 
@@ -80,7 +50,6 @@ impl Processor {
         let inst = self.system_bus.load(self.pc, 64).map_err(|err| {
             ProcessorError::FetchError
         })?;
-
         if inst & 0x3 < 0x3 {
             return Ok(Inst::Inst16(inst as u16));
         }
@@ -139,7 +108,7 @@ impl Processor {
     }
 
     fn exec_SLT(&mut self, inst: u32) {
-        self.regs[rd(inst)] = if self.regs[rs1(inst)] < self.regs[rs2(inst)] { 0x1 } else { 0x0 };
+        self.regs[rd(inst)] = if (self.regs[rs1(inst)] as i64) < (self.regs[rs2(inst)] as i64) { 0x1 } else { 0x0 };
     }
 
     fn exec_SLTU(&mut self, inst: u32) {
@@ -151,7 +120,7 @@ impl Processor {
     }
 
     fn exec_SRL(&mut self, inst: u32) {
-        self.regs[rd(inst)] = self.regs[rs1(inst)].shr(self.regs[rs2(inst)]);
+        self.regs[rd(inst)] = (self.regs[rs1(inst)] as i64).shr(self.regs[rs2(inst)]) as u64;
     }
 
     fn exec_SRA(&mut self, inst: u32) {
@@ -191,8 +160,48 @@ impl Processor {
         Ok(())
     }
 
+    fn exec_ADDW(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)].wrapping_add(self.regs[rs2(inst)]);
+    }
+
+    fn exec_SUBW(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)].wrapping_sub(self.regs[rs2(inst)]);
+    }
+
+    fn exec_SLLW(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)].shl(self.regs[rs2(inst)]);
+    }
+
+    fn exec_SRLW(&mut self, inst: u32) {
+        self.regs[rd(inst)] = (self.regs[rs1(inst)] as i64).shr(self.regs[rs2(inst)]) as u64;
+    }
+
+    fn exec_SRAW(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)].shr(self.regs[rs2(inst)]);
+    }
+
+    fn exec_r_type_64(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let funct7 = funct7(inst);
+        let funct3 = funct3(inst);
+        match funct3 {
+            ADDSUB => match funct7 {
+                ADDW => self.exec_ADDW(inst),
+                SUBW => self.exec_SUBW(inst),
+                _ => return Err(ProcessorError::NotYetImplemented),
+            }
+            SLLW => self.exec_SLLW(inst),
+            SRW => match funct7 {
+                SRLW => self.exec_SRLW(inst),
+                SRAW => self.exec_SRAW(inst),
+                _ => return Err(ProcessorError::NotYetImplemented),
+            }
+            _ => return Err(ProcessorError::NotYetImplemented),
+        }
+        Ok(())
+    }
+
     fn exec_ADDI(&mut self, inst: u32) {
-        let imm = ((inst & 0xfff00000) as i32 as i64 >> 20) as u64;
+        let imm = imm_I(inst);
         self.regs[rd(inst)] = self.regs[rs1(inst)].wrapping_add(imm);
     }
 
@@ -221,11 +230,11 @@ impl Processor {
     }
 
     fn exec_SRLI(&mut self, inst: u32) {
-        self.regs[rd(inst)] = self.regs[rs1(inst)] >> imm_I(inst);
+        self.regs[rd(inst)] = ((self.regs[rs1(inst)] as i64) >> imm_I(inst)) as u64;
     }
 
     fn exec_SRAI(&mut self, inst: u32) {
-        self.regs[rd(inst)] = ((self.regs[rs1(inst)] as i64) >> imm_I(inst)) as u64;
+        self.regs[rd(inst)] = self.regs[rs1(inst)] >> imm_I(inst);
     }
 
     fn exec_ANDI(&mut self, inst: u32) {
@@ -239,19 +248,52 @@ impl Processor {
     fn exec_i_type(&mut self, inst: u32) -> Result<(), ProcessorError> {
         let funct7 = funct7(inst);
         let funct3 = funct3(inst);
-        match funct7 {
+        match funct3 {
             ADDI => self.exec_ADDI(inst),
             SLLI => self.exec_SLLI(inst),
             SLTI => self.exec_SLTI(inst),
             SLTIU => self.exec_SLTIU(inst),
             XORI => self.exec_XORI(inst),
-            SRI_FUNCT3 => match funct3 {
+            SRI_FUNCT3 => match funct7 {
                 SRLI => self.exec_SRLI(inst),
                 SRAI => self.exec_SRAI(inst),   
                 _ => return Err(ProcessorError::NotYetImplemented),
             }
             ORI  => self.exec_ORI(inst),
             ANDI => self.exec_ANDI(inst),
+            _ => return Err(ProcessorError::NotYetImplemented),
+        }
+        Ok(())
+    }
+
+    fn exec_ADDIW(&mut self, inst: u32) {
+        let imm = imm_I(inst);
+        self.regs[rd(inst)] = self.regs[rs1(inst)].wrapping_add(imm);
+    }
+
+    fn exec_SLLIW(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)] << shamt(inst);
+    }
+
+    fn exec_SRLIW(&mut self, inst: u32) {
+        self.regs[rd(inst)] = ((self.regs[rs1(inst)] as i64) >> imm_I(inst)) as u64;
+    }
+
+    fn exec_SRAIW(&mut self, inst: u32) {
+        self.regs[rd(inst)] = self.regs[rs1(inst)] >> imm_I(inst);
+    }
+
+    fn exec_i_type_64(&mut self, inst: u32) -> Result<(), ProcessorError> {
+        let funct7 = funct7(inst);
+        let funct3 = funct3(inst);
+        match funct3 {
+            ADDIW => self.exec_ADDIW(inst),
+            SLLIW => self.exec_SLLIW(inst),
+            SRIW => match funct7 {
+                SRLIW => self.exec_SRLIW(inst),
+                SRAIW => self.exec_SRAIW(inst),
+                _ => return Err(ProcessorError::NotYetImplemented),
+            }
             _ => return Err(ProcessorError::NotYetImplemented),
         }
         Ok(())
@@ -283,16 +325,6 @@ impl Processor {
     fn exec_JALR(&mut self, inst: u32) {
         self.regs[rd(inst)] = self.pc + 4;
         self.pc = self.regs[rs1(inst)] + imm_I(inst);
-    }
-
-    fn exec_j_type(&mut self, inst: u32) -> Result<(), ProcessorError> {
-        let opcode = op(inst);
-        match opcode {
-            JAL => self.exec_JAL(inst),
-            JALR => self.exec_JALR(inst),
-            _ => return Err(ProcessorError::NotYetImplemented),
-        }
-        Ok(())
     }
 
     fn exec_BEQ(&mut self, inst: u32) {
@@ -464,27 +496,45 @@ impl Processor {
     }
 
     fn exec_CSRRW(&mut self, inst: u32) {
-        todo!()
+        let csr = csr(inst) as usize;
+        let tmp = self.csrs[csr];
+        self.csrs[csr] = self.regs[rs1(inst)];
+        self.regs[rd(inst)] = tmp;
     }
 
     fn exec_CSRRS(&mut self, inst: u32) {
-        todo!()
+        let csr = csr(inst) as usize;
+        let tmp = self.csrs[csr];
+        self.csrs[csr] = self.csrs[csr] | self.regs[rs1(inst)];
+        self.regs[rd(inst)] = tmp;
     }
 
     fn exec_CSRRC(&mut self, inst: u32) {
-        todo!()
+        let csr = csr(inst) as usize;
+        let tmp = self.csrs[csr];
+        self.csrs[csr] = self.csrs[csr] & (!self.regs[rs1(inst)]);
+        self.regs[rd(inst)] = tmp;
     }
 
     fn exec_CSRRWI(&mut self, inst: u32) {
-        todo!()
+        let csr = csr(inst) as usize;
+        let tmp = self.csrs[csr];
+        self.csrs[csr] = rs1(inst) as u64;
+        self.regs[rd(inst)] = tmp;
     }
 
     fn exec_CSRRSI(&mut self, inst: u32) {
-        todo!()
+        let csr = csr(inst) as usize;
+        let tmp = self.csrs[csr];
+        self.csrs[csr] = self.csrs[csr] | (rs1(inst) as u64);
+        self.regs[rd(inst)] = tmp;
     }
 
     fn exec_CSRRCI(&mut self, inst: u32) {
-        todo!()
+        let csr = csr(inst) as usize;
+        let tmp = self.csrs[csr];
+        self.csrs[csr] = self.csrs[csr] & (!(rs1(inst) as u64));
+        self.regs[rd(inst)] = tmp;
     }
 
     fn exec_system(&mut self, inst: u32) -> Result<(), ProcessorError> {
@@ -530,20 +580,33 @@ impl Processor {
     fn execute_32(&mut self, inst: u32) -> Result<(), ProcessorError> {
         let opcode = op(inst);
         match opcode {
-            LUI    => self.exec_LUI(inst),
-            AUIPC  => self.exec_AUIPC(inst),
-            R_TYPE => return self.exec_r_type(inst),
-            I_TYPE => return self.exec_i_type(inst),
-            JAL    => self.exec_JAL(inst),
-            JALR   => self.exec_JALR(inst),
-            B_TYPE => return self.exec_b_type(inst),
-            LOAD   => return self.exec_load(inst),
-            S_TYPE => return self.exec_store(inst),
-            SYSTEM => return self.exec_system(inst),
-            FENCE  => return self.exec_fence(inst),
-            _      => return Err(ProcessorError::NotYetImplemented),
+            JAL | JALR => {
+                match opcode {
+                    JAL    => self.exec_JAL(inst),
+                    JALR   => self.exec_JALR(inst),
+                    _      => return Err(ProcessorError::NotYetImplemented),
+                }
+                Ok(())
+            }
+            _ => {
+                match opcode {
+                    LUI    => self.exec_LUI(inst),
+                    AUIPC  => self.exec_AUIPC(inst),
+                    R_TYPE => self.exec_r_type(inst)?,
+                    R_TYPE_64 => self.exec_r_type_64(inst)?,
+                    I_TYPE => self.exec_i_type(inst)?,
+                    I_TYPE_64 => self.exec_i_type_64(inst)?,
+                    B_TYPE => self.exec_b_type(inst)?,
+                    LOAD   => self.exec_load(inst)?,
+                    S_TYPE => self.exec_store(inst)?,
+                    SYSTEM => self.exec_system(inst)?,
+                    FENCE  => self.exec_fence(inst)?,
+                    _      => return Err(ProcessorError::NotYetImplemented),
+                }
+                self.pc = self.pc + 4;
+                Ok(())
+            }
         }
-        Ok(())
     }
 }
 
@@ -600,18 +663,55 @@ impl Processor {
 
         let mut out = String::from("");
         for i in 0..8 {
-            out += &format!("{:4}: {:<8x}", abi[i], self.regs[i]);
-            out += &format!("{:2}: {:<8x}", abi[i + 8], self.regs[i + 8]);
-            out += &format!("{:2}: {:<8x}", abi[i + 16], self.regs[i + 16]);
-            out += &format!("{:3}: {:<8x}\n", abi[i + 24], self.regs[i + 24]);
+            out += &format!("{:4}: {:<12x}", abi[i], self.regs[i]);
+            out += &format!("{:2}: {:<12x}", abi[i + 8], self.regs[i + 8]);
+            out += &format!("{:2}: {:<12x}", abi[i + 16], self.regs[i + 16]);
+            out += &format!("{:3}: {:<12x}\n", abi[i + 24], self.regs[i + 24]);
         }
         out
     }
 
     pub fn tick(&mut self) -> Result<(), ProcessorError> {
+        self.regs[0] = 0x00;
         let inst = self.fetch()?;
         self.execute(inst)?;
-        self.pc = self.pc + 4;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Processor;
+
+    use super::SystemBus;
+    use super::SystemBusMap;
+
+    fn make_dummy_processor() -> Processor {
+        let sbus = SystemBus::new(SystemBusMap { dram_base_addr: 0x8000_0000, dram_size: 0x1_0000 });
+        Processor::new(sbus)
+    }
+
+    #[test]
+    fn srl_test() {
+        let mut cpu = make_dummy_processor();
+
+        cpu.regs[1] = 0x8000_0000_0000_0000;
+        cpu.regs[2] = 0x01;
+        let inst = 0x0020_d1b3;
+        cpu.exec_SRL(inst);
+
+        assert_eq!(cpu.regs[3], 0xc000_0000_0000_0000);
+    }
+
+    #[test]
+    fn sra_test() {
+        let mut cpu = make_dummy_processor();
+
+        cpu.regs[1] = 0x8000_0000_0000_0000;
+        cpu.regs[2] = 0x01;
+        let inst = 0x0020_d1b3;
+        cpu.exec_SRA(inst);
+
+        assert_eq!(cpu.regs[3], 0x4000_0000_0000_0000);
     }
 }

@@ -60,7 +60,7 @@ pub fn funct3(inst: u32) -> u64 {
 }
 
 pub fn funct7(inst: u32) -> u64 {
-    x(inst as u64, 7, 25)
+    x(inst as u64, 25, 7)
 }
 
 pub fn op(inst: u32) -> u64 {
